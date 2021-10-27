@@ -1,0 +1,6 @@
+1. install channels
+    --> pip install channels 
+2. Add channels into INSTALLED_APPS
+3. Add application instance in routing.py
+4. Add following line in  settings to tell django about asgi app 
+    --> ASGI_APPLICATION = "<project-name>.routing.application"

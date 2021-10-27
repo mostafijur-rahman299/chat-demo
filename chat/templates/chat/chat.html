@@ -1,0 +1,258 @@
+{% extends 'chat/base.html' %}
+{% load static %}
+
+{% block content %}
+<div id="msg-container">
+
+    <!-- notification  -->
+    <div class="container" style="position: sticky;top: 0; left:0;display: flexbox;">
+        <div id="notify-user">
+
+        </div>
+    </div>
+
+    <div class="container message-body">
+        <a id="notification"
+            style="background-color: #3a00ff;position:sticky;top:0;color:white;font-weight: bold; width: 150px;padding:8px;text-align:center;border-radius: 18px;display:none;"
+            href="#message-form"></a>
+
+        <h3>You: {{me.username}}</h3>
+        <h3>Thread: {{user.username}}</h3>
+        <ul id="message-list">
+            {% for message in messages %}
+            <li>[{{message.sender.username}}]: {{message.text}}</li>
+
+            {% if message.image %}
+            <img style="width: 50;height: 50" src="{{ message.image.url }}" />
+            {% endif %}
+
+            {% if message.audio_file %}
+                <audio controls>
+                    <source src="{{message.audio_file.url}}" type="audio/mpeg">
+                    Your browser does not support the audio element.
+                </audio
+            {% endif %}
+
+            <hr>
+            {% endfor %}
+        </ul>
+
+        <p id="typing"></p>
+        <form id="message-form">
+            {% csrf_token %}
+            <input type="text" name="message" id="message" required>
+
+            <div class="file">
+                <input type="file" name="image_up" id="image_up" />
+
+                <div id="controls">
+                    <button id="recordButton">Record</button>
+                    <button id="pauseButton" disabled>Pause</button>
+                    <button id="stopButton" disabled>Stop</button>
+                </div>
+                <div id="formats"></div>
+                <ol id="recordingsList"></ol>
+            </div>
+
+
+            <br><br>
+            <input type="submit" value="Send" class="btn btn-success btn-lg">
+
+        </form>
+
+
+
+    </div>
+</div>
+
+{{ request.user.username|json_script:'username'}}
+{{ request.user.id|json_script:'id'}}
+{% endblock content %}
+
+{% block custom_javascript %}
+<script src="https://cdn.rawgit.com/mattdiamond/Recorderjs/08e7abd9/dist/recorder.js"></script>
+<script src="{% static 'js/app.js' %}?v=1.01"></script>
+
+<script>
+
+    const getBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    }
+
+
+    var msg_counter = 0
+    var hasFocus = false
+    audioFile = null;
+
+    // typing text showing....
+    const username = JSON.parse(document.getElementById('username').textContent)
+    const userId = JSON.parse(document.getElementById('id').textContent)
+
+    // user chat
+    const wsUrl = 'ws://' + window.location.host + '/ws' + window.location.pathname;
+    const webSocket = new WebSocket(wsUrl)
+
+    webSocket.onopen = function (event) {
+        console.log('Connection is opened')
+    }
+
+    webSocket.onmessage = function (event) {
+        hasFocus = false
+        const ul = document.getElementById('message-list')
+        const li = document.createElement('li')
+
+        var data = JSON.parse(event.data)
+
+        if (data.image) {
+            var img = document.createElement('img');
+            img.src = data.image
+            li.appendChild(img);
+        }
+
+        if (data.message) {
+            li.append(document.createTextNode(
+                `[${data.username}]: ${data.message}`
+            ))
+
+            li.style.color = 'green';
+            setTimeout(() => {
+                li.style.color = 'black';
+            }, 500)
+
+            li.append(document.createElement('br'))
+
+            ul.append(li)
+            
+
+            // new message Notification
+            if (data.username != username) {
+                if (document.body.scrollTop + window.innerHeight + 170 <= document.body.scrollHeight) {
+                    msg_counter = msg_counter + 1
+                    if (msg_counter >= 1) {
+                        document.getElementById("notification").style.display = 'block';
+                        document.getElementById("notification").textContent = `${msg_counter} New Message`;
+                    }
+                }
+                window.focus(setTimeout(() => {
+                    webSocket.send(
+                        JSON.stringify({
+                            'message': '',
+                            'is_typing': false,
+                            'notification_read': true,
+                            'sender': data.username
+                        })
+                    )
+                }, 1000)
+                )
+            }
+        }
+
+        // typing text showing....
+        if (data.username != username) {
+            if (data.is_typing === true) {
+                document.getElementById('typing').textContent = 'typing.....'
+            } else {
+                document.getElementById('typing').textContent = ''
+            }
+        }
+    }
+
+
+    // specific user notification
+    const wsNotifyUrl = 'ws://' + window.location.host + '/ws/notify/';
+    const notifywebSocket = new WebSocket(wsNotifyUrl)
+
+    notifywebSocket.onopen = function (event) {
+        notifywebSocket.send(JSON.stringify({
+            "command": "join",
+            "token": "234233sdfgwert345"
+        }))
+    }
+
+    notifywebSocket.onmessage = function (event) {
+        const data = JSON.parse(event.data)
+
+        if (data.sender != username) {
+            const existing_msg = document.getElementById(`notify_${data.sender}`)
+            if (!data.read_notification) {
+                if (existing_msg) {
+                    existing_msg.textContent = `${data.message_counter} ${data.message}`
+                } else {
+                    document.getElementById('notify-user').insertAdjacentHTML("afterend", `<p class="notification-msg-p" id=notify_${data.sender} >${data.message_counter} ${data.message}</p>`)
+                }
+            } else {
+                existing_msg.style.display = 'none'
+                existing_msg.remove()
+            }
+        }
+    }
+
+    const messageForm = document.getElementById("message-form")
+    messageForm.addEventListener('submit', sendMessage)
+    async function sendMessage(e) {
+        if (e.preventDefault) e.preventDefault()
+
+        message = document.getElementById('message').value
+        image = document.getElementById('image_up').files[0];
+        audio = ''
+
+        if (image) {
+            image = await getBase64(image)
+        }
+
+        if(audioFile != null){
+            audio = await getBase64(audioFile)
+        }
+
+        webSocket.send(
+            JSON.stringify({
+                'message': message,
+                'image': image,
+                'audio': audio,
+                'is_typing': false,
+                'notification_read': false,
+                'sender': ''
+            }))
+        messageForm.reset();
+        audioFile = null
+    }
+
+    // typing text......
+    document.getElementById('message').addEventListener('keydown', function (e) {
+        if (e.target.value) {
+            webSocket.send(
+                JSON.stringify({
+                    'message': '',
+                    'is_typing': true,
+                    'notification_read': false,
+                    'sender': ''
+                })
+            )
+        }
+    })
+    document.getElementById('message').addEventListener('blur', function (e) {
+        webSocket.send(
+            JSON.stringify({
+                'message': '',
+                'is_typing': false,
+                'notification_read': false,
+                'sender': ''
+            })
+        )
+    })
+
+    // hide page notification onscroll
+    window.addEventListener('scroll', function () {
+        if (document.body.scrollTop + window.innerHeight + 120 >= document.body.scrollHeight) {
+            document.getElementById("notification").style.display = 'none';
+            msg_counter = 0
+        }
+    })
+
+</script>
+{% endblock custom_javascript %}

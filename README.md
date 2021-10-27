@@ -1,4 +1,11 @@
-## Understand about Web Socket
-https://youtu.be/iDVlcg7APUs
-## Introduction to django chhanels and basic integration
-https://youtu.be/Vks_Rpu0LH8
+# Getting Started
+
+
+## Installation
+
+Use the package manager [pip](https://pip.pypa.io/en/stable/) to install requirements.
+
+```bash
+pip install -r requirements.txt
+```
+
